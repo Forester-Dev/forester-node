@@ -255,7 +255,7 @@ fn exec(_exe: &Path) {}
 
 // ---- Checking, downloading and applying ----------------------------------------------------
 
-fn client() -> Result<&'static reqwest::Client> {
+pub fn client() -> Result<&'static reqwest::Client> {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     if let Some(c) = CLIENT.get() {
         return Ok(c);

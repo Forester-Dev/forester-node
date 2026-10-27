@@ -13,6 +13,7 @@ mod rtc;
 mod store;
 mod stun;
 mod update;
+mod web;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -38,10 +39,11 @@ enum Command {
     Status,
     /// Print the code that links this node to your share.forester.dev account
     PairingCode,
-    /// Change a setting in config.toml: name, max_storage_gb, reserve_free_gb, personal_site, auto_update, rtc_port
+    /// Change a setting in config.toml: name, max_storage_gb, reserve_free_gb, web_view, web_port, auto_update, rtc_port
     ConfigSet { key: String, value: String },
-    /// Turn the personal share site on or off (off by default)
-    PersonalSite {
+    /// Serve your own transfer site from this node, on your own domain (off by default)
+    #[command(alias = "personal-site")]
+    WebView {
         #[arg(value_parser = ["on", "off"])]
         state: String,
     },
@@ -79,14 +81,19 @@ async fn main() -> Result<()> {
             println!("{key} updated. A running node applies it within 30 seconds.");
             Ok(())
         }
-        Command::PersonalSite { state } => {
-            config::Config::load(&data_dir)?;
+        Command::WebView { state } => {
+            let cfg = config::Config::load(&data_dir)?;
             let on = state == "on";
-            config::Config::set_value(&data_dir, "personal_site", if on { "true" } else { "false" })?;
-            println!(
-                "Personal site {}. A running node applies this within 30 seconds.",
-                if on { "enabled" } else { "disabled" }
-            );
+            config::Config::set_value(&data_dir, "web_view", if on { "true" } else { "false" })?;
+            if on {
+                println!(
+                    "Web view on. A running node starts serving on port {} within 30 seconds: point your domain's \
+                     reverse proxy or tunnel there, then add the domain on your Dashboard.",
+                    cfg.web_port
+                );
+            } else {
+                println!("Web view off. A running node stops serving within 30 seconds.");
+            }
             Ok(())
         }
     }
@@ -106,7 +113,7 @@ async fn status(data_dir: PathBuf) -> Result<()> {
         println!("pairing code   {code}");
     }
     println!("orchestrator   {}", cfg.orchestrator_url);
-    println!("personal site  {}", if cfg.personal_site { "on" } else { "off" });
+    println!("web view       {}", if cfg.web_view { format!("on, port {}", cfg.web_port) } else { "off".into() });
     println!("auto update    {}", if cfg.auto_update { "on" } else { "off" });
     println!("disk           {:.1} GB free of {:.1} GB", gb(d.disk_available), gb(d.disk_total));
     println!(
@@ -140,6 +147,7 @@ async fn run(data_dir: PathBuf) -> Result<()> {
     let _ = link::SHARED.set(Arc::clone(&shared));
 
     tokio::spawn(update::run_forever(Arc::clone(&shared)));
+    tokio::spawn(web::run_forever(Arc::clone(&shared)));
     tokio::select! {
         _ = link::run_forever(shared) => {}
         _ = shutdown_signal() => info!("shutting down"),

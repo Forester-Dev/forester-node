@@ -81,7 +81,7 @@ impl Shared {
             "maxStorageBytes": c.max_storage_bytes,
             "settingsLocked": c.env_locked,
             "volumeFingerprint": disk::volume_fingerprint(&c.data_dir, c.volume_id.as_deref()),
-            "personalSite": c.personal_site,
+            "personalSite": c.web_view,
             "name": c.name,
             "platform": update::platform(),
             "autoUpdate": c.auto_update,
@@ -174,7 +174,7 @@ async fn connect_once(shared: &Arc<Shared>) -> Result<()> {
         "sig": shared.identity.sign_b64(format!("forester-node-hello:v1:{nonce}").as_bytes()),
         "version": VERSION,
         "name": c.name,
-        "settings": { "personalSite": c.personal_site },
+        "settings": { "personalSite": c.web_view },
         "rtc": shared.rtc.as_ref().map(|r| r.describe()),
     });
     sink.send(text(hello)).await?;
@@ -459,8 +459,9 @@ async fn handle_command(
         "settings" => {
             let dir = shared.config().data_dir;
             let result: Result<()> = (|| {
+                // "personalSite" is the wire name for the web view switch
                 if let Some(on) = v["personalSite"].as_bool() {
-                    Config::set_setting(&dir, "personal_site", if on { "true" } else { "false" })?;
+                    Config::set_setting(&dir, "web_view", if on { "true" } else { "false" })?;
                 }
                 if let Some(gb) = v["maxStorageGb"].as_f64() {
                     Config::set_setting(&dir, "max_storage_gb", &gb.to_string())?;

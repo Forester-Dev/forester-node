@@ -60,6 +60,7 @@ forester-node config-set max_storage_gb 500     # most it may lend; unset = all 
 forester-node config-set reserve_free_gb 50     # always keep this much free for yourself (default 20)
 forester-node config-set name "Garage NAS"
 forester-node config-set auto_update false      # you can still update from the Dashboard
+forester-node web-view on                       # serve your own site on port 8097 (see below)
 forester-node status                            # identity, linking, disk and allocation
 ```
 
@@ -74,7 +75,21 @@ Environment variables override the file (and then cannot be changed from the Das
 | `FORESTER_RTC_PORT` | UDP port for direct transfers (0 picks a free one) |
 | `FORESTER_ANNOUNCE_IPS` | Extra addresses to advertise, e.g. your LAN IP when running in Docker |
 | `FORESTER_AUTO_UPDATE` | `true` / `false` |
+| `FORESTER_WEB_VIEW` | `true` / `false`: serve your own site (below) |
+| `FORESTER_WEB_PORT` | Port for your own site (default 8097) |
 | `FORESTER_CP_KEY` | Pin the control plane key instead of trusting it on first connect |
+
+## Your own site
+
+Your node can serve your own transfer page on a domain you own: you send files from it, and the people you send to download there, with one link back to Forester. Turn it on with `forester-node web-view on` (or from the Dashboard); the node then serves plain HTTP on port 8097. Put a reverse proxy or tunnel in front that gives your domain HTTPS and passes the original host name, for example with Caddy:
+
+```
+files.example.com {
+  reverse_proxy 127.0.0.1:8097
+}
+```
+
+Then add the domain on your Dashboard. Forester asks `https://<your domain>/.well-known/forester-site` for a signature by your node's key over the domain, and only accepts the domain once it really leads to your node. The page and its scripts come from share.forester.dev over HTTPS and are cached by the node; your files never pass through this web server.
 
 ## Updates
 

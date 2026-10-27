@@ -8,6 +8,7 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 
 pub const DEFAULT_ORCHESTRATOR: &str = "https://api.forester.dev/share";
+pub const DEFAULT_SITE_UPSTREAM: &str = "https://share.forester.dev";
 const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 
 const DEFAULT_CONFIG_TOML: &str = r#"# forester-node configuration. Changes are picked up within 30 seconds.
@@ -21,8 +22,11 @@ name = "My Forester Node"
 # Always keep at least this much disk free for yourself, in GB.
 reserve_free_gb = 20
 
-# Personal share site (yourname.forester.dev) served from this node. Off by default.
-personal_site = false
+# Web view: serve your own transfer site from this node, on your own domain. Point your
+# reverse proxy or tunnel (which provides HTTPS) at web_port, then add the domain on your
+# Dashboard. Off by default.
+web_view = false
+web_port = 8097
 
 # UDP port for direct browser and local-network transfers. 0 picks a free port.
 rtc_port = 0
@@ -40,7 +44,10 @@ struct FileConfig {
     name: Option<String>,
     max_storage_gb: Option<f64>,
     reserve_free_gb: Option<f64>,
-    personal_site: Option<bool>,
+    #[serde(alias = "personal_site")]
+    web_view: Option<bool>,
+    web_port: Option<u16>,
+    site_upstream: Option<String>,
     rtc_port: Option<u16>,
     announce_ips: Option<Vec<String>>,
     volume_id: Option<String>,
@@ -57,7 +64,11 @@ pub struct Config {
     pub max_storage_bytes: Option<u64>,
     /// Space always left free for the owner.
     pub reserve_free_bytes: u64,
-    pub personal_site: bool,
+    /// Serve the owner's own transfer site (web.rs).
+    pub web_view: bool,
+    pub web_port: u16,
+    /// Where the site's page and assets come from.
+    pub site_upstream: String,
     pub rtc_port: u16,
     pub announce_ips: Vec<IpAddr>,
     pub volume_id: Option<String>,
@@ -129,10 +140,17 @@ impl Config {
             .and_then(|v| v.parse::<f64>().ok())
             .or(file.reserve_free_gb)
             .unwrap_or(20.0));
-        let personal_site = env("FORESTER_PERSONAL_SITE")
+        let web_view = env_any(&["FORESTER_WEB_VIEW", "FORESTER_PERSONAL_SITE"])
             .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "on" | "yes"))
-            .or(file.personal_site)
+            .or(file.web_view)
             .unwrap_or(false);
+        let web_port = env("FORESTER_WEB_PORT")
+            .and_then(|v| v.parse().ok())
+            .or(file.web_port)
+            .unwrap_or(8097);
+        let site_upstream = env("FORESTER_SITE_UPSTREAM")
+            .or(file.site_upstream)
+            .unwrap_or_else(|| DEFAULT_SITE_UPSTREAM.to_string());
         let rtc_port = env("FORESTER_RTC_PORT")
             .and_then(|v| v.parse().ok())
             .or(file.rtc_port)
@@ -155,7 +173,7 @@ impl Config {
         if env_any(&["FORESTER_NODE_NAME", "NODE_NAME"]).is_some() { env_locked.push("name"); }
         if env_any(&["FORESTER_MAX_STORAGE_GB", "MAX_STORAGE_GB"]).is_some() { env_locked.push("maxStorageGb"); }
         if env("FORESTER_RESERVE_FREE_GB").is_some() { env_locked.push("reserveFreeGb"); }
-        if env("FORESTER_PERSONAL_SITE").is_some() { env_locked.push("personalSite"); }
+        if env_any(&["FORESTER_WEB_VIEW", "FORESTER_PERSONAL_SITE"]).is_some() { env_locked.push("personalSite"); }
         if env("FORESTER_AUTO_UPDATE").is_some() { env_locked.push("autoUpdate"); }
 
         Ok(Config {
@@ -164,7 +182,9 @@ impl Config {
             name,
             max_storage_bytes,
             reserve_free_bytes,
-            personal_site,
+            web_view,
+            web_port,
+            site_upstream,
             rtc_port,
             announce_ips,
             volume_id,
@@ -188,11 +208,12 @@ impl Config {
                 anyhow::ensure!(n >= 0.0 && n < 1.0e7, "out of range");
                 format!("{n}")
             }
-            "personal_site" | "auto_update" => match value.trim() {
+            "web_view" | "auto_update" => match value.trim() {
                 "true" | "on" => "true".into(),
                 "false" | "off" => "false".into(),
                 _ => anyhow::bail!("expected on or off"),
             },
+            "web_port" => format!("{}", value.trim().parse::<u16>().context("expected a port number")?),
             "rtc_port" => format!("{}", value.trim().parse::<u16>().context("expected a port number")?),
             other => anyhow::bail!("unknown setting {other}"),
         };
@@ -234,17 +255,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_keep_personal_site_off_and_round_trip_settings() {
+    fn defaults_keep_web_view_off_and_round_trip_settings() {
         let dir = std::env::temp_dir().join(format!("fn-cfg-{}", rand::random::<u64>()));
         let cfg = Config::load(&dir).unwrap();
-        assert!(!cfg.personal_site, "personal site must be off by default");
+        assert!(!cfg.web_view, "web view must be off by default");
+        assert_eq!(cfg.web_port, 8097);
         assert_eq!(cfg.reserve_free_bytes, (20.0 * GIB) as u64);
         assert!(cfg.auto_update, "auto update is on by default");
 
-        Config::set_value(&dir, "personal_site", "true").unwrap();
+        Config::set_value(&dir, "web_view", "true").unwrap();
         Config::set_value(&dir, "max_storage_gb", "250").unwrap();
         let cfg = Config::load(&dir).unwrap();
-        assert!(cfg.personal_site);
+        assert!(cfg.web_view);
         assert_eq!(cfg.max_storage_bytes, Some((250.0 * GIB) as u64));
         // comments survive edits
         assert!(std::fs::read_to_string(Config::config_path(&dir)).unwrap().contains("# Display name"));
