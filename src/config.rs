@@ -90,6 +90,38 @@ fn env_any(names: &[&str]) -> Option<String> {
     names.iter().find_map(|n| env(n))
 }
 
+fn is_key_line(line: &str, key: &str) -> bool {
+    line.trim_start()
+        .strip_prefix(key)
+        .map(|rest| rest.trim_start().starts_with('='))
+        .unwrap_or(false)
+}
+
+/// `personal_site` was renamed `web_view`. Older files keep the old line: this renames it, or drops
+/// it when a `web_view` line was already added beside it (both at once would not parse). None when
+/// nothing needs changing.
+fn migrate_legacy_keys(raw: &str) -> Option<String> {
+    if !raw.lines().any(|l| is_key_line(l, "personal_site")) {
+        return None;
+    }
+    let has_new = raw.lines().any(|l| is_key_line(l, "web_view"));
+    let mut out = String::new();
+    for line in raw.lines() {
+        if is_key_line(line, "personal_site") {
+            if !has_new {
+                out.push_str(&line.replacen("personal_site", "web_view", 1));
+                out.push('\n');
+            }
+        } else if line.trim_start().starts_with("# Personal share site") {
+            out.push_str("# Web view: serve your own transfer site from this node, on your own domain.\n");
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    Some(out)
+}
+
 pub fn default_data_dir() -> PathBuf {
     if let Some(d) = env_any(&["FORESTER_DATA_DIR", "DATA_DIR"]) {
         return PathBuf::from(d);
@@ -121,7 +153,13 @@ impl Config {
             std::fs::write(&path, DEFAULT_CONFIG_TOML)
                 .with_context(|| format!("writing {}", path.display()))?;
         }
-        let raw = std::fs::read_to_string(&path)?;
+        let mut raw = std::fs::read_to_string(&path)?;
+        if let Some(migrated) = migrate_legacy_keys(&raw) {
+            let tmp = path.with_extension("toml.tmp");
+            std::fs::write(&tmp, &migrated)?;
+            std::fs::rename(tmp, &path)?;
+            raw = migrated;
+        }
         let file: FileConfig =
             toml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
 
@@ -270,6 +308,21 @@ mod tests {
         assert_eq!(cfg.max_storage_bytes, Some((250.0 * GIB) as u64));
         // comments survive edits
         assert!(std::fs::read_to_string(Config::config_path(&dir)).unwrap().contains("# Display name"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn legacy_personal_site_line_becomes_web_view() {
+        let dir = std::env::temp_dir().join(format!("fn-cfg-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Renamed when it is the only one
+        std::fs::write(Config::config_path(&dir), "name = \"A\"\npersonal_site = true\n").unwrap();
+        assert!(Config::load(&dir).unwrap().web_view);
+        // Dropped when a web_view line was added beside it
+        std::fs::write(Config::config_path(&dir), "personal_site = false\nweb_view = true\n").unwrap();
+        assert!(Config::load(&dir).unwrap().web_view);
+        let raw = std::fs::read_to_string(Config::config_path(&dir)).unwrap();
+        assert!(!raw.contains("personal_site"));
         std::fs::remove_dir_all(dir).ok();
     }
 }
