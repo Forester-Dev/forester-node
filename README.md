@@ -7,12 +7,12 @@ Run it on a machine with spare disk and it will:
 - **lend that space to the network**, holding encrypted pieces of other people's files that it cannot read
 - **keep your own files first**: they are stored on your disk for free and never make way for anyone else's
 - **serve transfers directly**: to browsers over WebRTC, and between your own devices at local network speed when you are at home
-- **prove it is really storing what it holds**, by answering random storage checks from the network
+- **prove it is really storing what it holds**, by answering random storage checks from the network (from 2.4.0, Merkle proofs against a root the network keeps, so checks never run out)
 - **keep itself up to date** with signed releases, without dropping transfers in progress
 
 It is a single static binary written in Rust, with no runtime dependencies.
 
-> **Status: early.** The network is new and small. Nodes earn a share of storage revenue on their account, but **payouts are not live yet**. Builds exist for Linux on x86_64 today; macOS, Windows and ARM are planned. See [share.forester.dev/status](https://share.forester.dev/status) for live network health.
+> **Status: early.** The network is new and small. Nodes earn a share of storage revenue, paid monthly to a bank account in New Zealand (other countries build up earnings until payouts open there). How work is counted is in the [docs](https://share.forester.dev/docs#guide-node). Builds exist for Linux on x86_64 today; macOS, Windows and ARM are planned. See [share.forester.dev/status](https://share.forester.dev/status) for live network health.
 
 ## Install
 
