@@ -1,6 +1,6 @@
 [package]
 name = "forester-node"
-version = "2.3.1"
+version = "2.4.0"
 edition = "2024"
 description = "Storage node for the Forester mesh"
 license = "AGPL-3.0-only"

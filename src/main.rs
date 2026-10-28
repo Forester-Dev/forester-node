@@ -8,6 +8,7 @@ mod config;
 mod disk;
 mod identity;
 mod link;
+mod merkle;
 mod meter;
 mod rtc;
 mod store;

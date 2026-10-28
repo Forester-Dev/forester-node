@@ -4,6 +4,7 @@
 //! CGNAT with no port forwarding. Operations are multiplexed by request id (`rid`) and
 //! stream with backpressure: a slow disk or socket slows the sender instead of buffering.
 
+use base64::Engine as _;
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use ed25519_dalek::VerifyingKey;
@@ -323,7 +324,7 @@ async fn handle_command(
     }
 
     let op = match t {
-        "put" | "get" | "del" | "por" | "rtc" | "settings" | "update" => t,
+        "put" | "get" | "del" | "por" | "mproof" | "rtc" | "settings" | "update" => t,
         _ => return,
     };
     let Some(cp_key) = shared.cp_key() else {
@@ -337,7 +338,7 @@ async fn handle_command(
     };
 
     // Transfers hold a guard so a self-update waits for them; none start while it is pending
-    let guard = if matches!(op, "put" | "get" | "del" | "por") {
+    let guard = if matches!(op, "put" | "get" | "del" | "por" | "mproof") {
         match update::begin_op() {
             Some(g) => Some(g),
             None => return reply_err(out, rid, "node_restarting"),
@@ -437,6 +438,26 @@ async fn handle_command(
                 let _guard = guard;
                 let msg = match store.proof(&blob, offset, length, &nonce).await {
                     Ok(hash) => json!({ "t": "por", "rid": rid, "hash": hash }),
+                    Err(e) => json!({ "t": "err", "rid": rid, "error": format!("{e:#}") }),
+                };
+                out.send(text(msg)).await.ok();
+            });
+        }
+        "mproof" => {
+            let store = Arc::clone(&shared.store);
+            let out = out.clone();
+            let blob = blob.unwrap_or("").to_string();
+            let index = v["index"].as_u64().unwrap_or(0);
+            tokio::spawn(async move {
+                let _guard = guard;
+                let msg = match store.merkle_proof(&blob, index).await {
+                    Ok((chunk, path, size)) => json!({
+                        "t": "mproof",
+                        "rid": rid,
+                        "chunk": base64::engine::general_purpose::STANDARD.encode(&chunk),
+                        "path": path.iter().map(hex::encode).collect::<Vec<_>>(),
+                        "size": size,
+                    }),
                     Err(e) => json!({ "t": "err", "rid": rid, "error": format!("{e:#}") }),
                 };
                 out.send(text(msg)).await.ok();

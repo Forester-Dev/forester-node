@@ -146,6 +146,16 @@ impl BlobStore {
         }
         Ok(hex::encode(hasher.finalize()))
     }
+
+    /// Chunk `index` of a blob with its Merkle path, and the blob's size (see merkle.rs).
+    pub async fn merkle_proof(&self, id: &str, index: u64) -> Result<(Vec<u8>, Vec<crate::merkle::Hash>, u64)> {
+        let (mut file, size, _) = self.open_range(id, 0, None).await?;
+        let mut data = Vec::with_capacity(size as usize);
+        file.read_to_end(&mut data).await?;
+        let proof = tokio::task::spawn_blocking(move || crate::merkle::prove(&data, index as usize)).await?;
+        let (chunk, path) = proof.context("chunk index beyond end of blob")?;
+        Ok((chunk, path, size))
+    }
 }
 
 pub struct PutHandle {

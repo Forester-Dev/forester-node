@@ -28,7 +28,7 @@ Handshake:
 Every CP command and every browser request carries `cap`. It's `b64url(json) + "." + b64url(ed25519_sig_by_cp(json bytes))`, where:
 
 ```json
-{"v":1,"op":"put|get|del|por|rtc|settings|update","node":"fn_...","blob":"id or null","max":bytes,"exp":unix_ms}
+{"v":1,"op":"put|get|del|por|mproof|rtc|settings|update","node":"fn_...","blob":"id or null","max":bytes,"exp":unix_ms}
 ```
 
 The node rejects a capability when any of these holds:
@@ -46,13 +46,15 @@ The node rejects a capability when any of these holds:
 | `{"t":"get","rid","blob","offset","length","cap"}` | `{"t":"meta","rid","size"}`, binary frames, `{"t":"end","rid"}` |
 | `{"t":"del","rid","blob","cap"}` | `{"t":"ok","rid"}` |
 | `{"t":"por","rid","blob","offset","length","nonce","cap"}` | `{"t":"por","rid","hash"}` where `hash = hex(sha256(nonce_bytes \|\| blob[offset..offset+length]))` |
+| `{"t":"mproof","rid","blob","index","cap"}` (2.4.0+) | `{"t":"mproof","rid","chunk","path","size"}`: chunk `index` (base64), its Merkle path (hex, leaf level first) and the blob size |
 | `{"t":"rtc","rid","sdp","cap"}` | `{"t":"rtc","rid","sdp"}` (non-trickle answer with all node candidates) |
 | `{"t":"settings","rid","personalSite"?,"autoUpdate"?,"maxStorageGb"?,"reserveFreeGb"?,"name"?,"cap"}` | `{"t":"ok","rid"}` |
 | `{"t":"update","rid","cap"}` | `{"t":"ok","rid","installing":version or null,"current"}` |
 
 - **put:** the node streams the data to a temp file, verifies the size and sha256, and only then atomically renames it into place.
 - **update:** the node fetches the signed release manifest and, if it is newer, stages and switches to it (see Updates). `installing` is null when it is already current.
-- **por:** the CP derives expected answers when it first sees the blob, so it never needs to keep the data to verify storage later.
+- **por:** the CP derives expected answers when it first sees the blob, so it never needs to keep the data to verify storage later. Each answer can be used once; nodes older than 2.4.0 are checked this way.
+- **mproof:** the CP keeps one Merkle root per blob and asks for a random chunk, so checks never run out and the CP never needs the data again. The blob is split into 4096-byte chunks (the last may be shorter, an empty blob is one empty chunk); leaf = sha256(0x00 || chunk); the leaves are padded to a power of two with sha256(0x02); parent = sha256(0x01 || left || right). The path holds one sibling per level, leaf level first; the CP checks the chunk's length for its position and recomputes the root. Test vector: the 10,000 bytes `i % 256` have root `ea3000fb88f221862001c721d02221d33a02f3265ee72eec981169a830d4e3bf`.
 
 ## Status (node → CP)
 
